@@ -37,30 +37,6 @@ class FileUtil
 			Dir.mkdir(path) if !Dir.exist?(path)
 		end
 	end
-
-	def self.removeDirectoryIfNoFile(path)
-		found = false
-		Dir.foreach( path ) do |aPath|
-			next if aPath == '.' or aPath == '..'
-			found = true
-			break
-		end
-		FileUtils.rm_rf(path) if !found
-	end
-
-	def self.cleanupDirectory(path, recursive=false, force=false)
-		if recursive && force then
-			FileUtils.rm_rf(path)
-		elsif recursive then
-			FileUtils.rm_r(path)
-		elsif force then
-			FileUtils.rm_f(path)
-		else
-			FileUtils.rmdir(path)
-		end
-
-		ensureDirectory(path)
-	end
 end
 
 
@@ -91,7 +67,6 @@ class DiffWithGit
 		if( FileTest.directory?(@srcPath) && FileTest.directory?(@dstPath) ) then
 			puts "\n#{@srcPath}" if @verbose
 			patchDir = @patchPath
-			FileUtil.cleanupDirectory(patchDir, true, true)
 			patchOutput = "#{patchDir}/0001.patch"
 			exec_cmd = "#{DEF_EXEC_DIFF} -- #{Shellwords.escape(@srcPath)} #{Shellwords.escape(@dstPath)} > #{Shellwords.escape("#{patchOutput}.raw")}"
 			ExecUtil.execCmd(exec_cmd, ".", false)
@@ -99,7 +74,6 @@ class DiffWithGit
 			FileUtils.rm_f(patchOutput+".raw")
 			if !File.size?(patchOutput) then
 				FileUtils.rm_f(patchOutput)
-				FileUtil.removeDirectoryIfNoFile(patchDir)
 			end
 		else
 			puts "\nSkipping... #{@srcPath} (not existed)" if @verbose
@@ -181,18 +155,10 @@ options = {
 }
 
 opt_parser = OptionParser.new do |opts|
-	opts.banner = "Usage: -s sourceDir -t targetDir -p patchOutputDir"
+	opts.banner = "Usage: sourceDir targetDir -p patchOutputDir"
 
 	opts.on("-v", "--verbose", "Enable verbose status output (default:#{options[:verbose]})") do
 		options[:verbose] = true
-	end
-
-	opts.on("-s", "--source=", "Specify source path") do |srcDir|
-		options[:srcDir] = srcDir
-	end
-
-	opts.on("-t", "--destination=", "Specify destination path") do |dstDir|
-		options[:dstDir] = dstDir
 	end
 
 	opts.on("-p", "--patch=", "Specify patch output directory (default:#{options[:patchDir]})") do |patchDir|
@@ -204,14 +170,36 @@ opt_parser = OptionParser.new do |opts|
 	end
 end.parse!
 
+if ARGV.length==2 then
+	options[:srcDir] = ARGV[0]
+	options[:dstDir] = ARGV[1]
+else
+	puts "sourceDir targetDir are required."
+	exit(-1)
+end
+
 if !options[:srcDir] || !options[:dstDir] then
-	puts "-s & -t are required."
+	puts "sourceDir targetDir are required."
 	exit(-1)
 end
 
 options[:srcDir] = File.expand_path(options[:srcDir])
 options[:dstDir] = File.expand_path(options[:dstDir])
 options[:patchDir] = File.expand_path(options[:patchDir])
+
+if !FileTest.directory?(options[:patchDir]) then
+	FileUtil.ensureDirectory(options[:patchDir])
+end
+
+if( !FileTest.directory?(options[:srcDir]) || !FileTest.directory?(options[:dstDir]) || !FileTest.directory?(options[:patchDir]) ||
+	(options[:srcDir] == options[:dstDir]) || (options[:srcDir] == options[:patchDir]) || (options[:patchDir] == options[:dstDir]) ) then
+	puts "srcDir = #{options[:srcDir]}"
+	puts "dstDir = #{options[:dstDir]}"
+	puts "patchDir = #{options[:patchDir]}"
+	puts ""
+	puts "sourceDir, targetDir, patchDir are required as directory and different."
+	exit(-1)
+end
 
 diffEngine = DiffWithGit.new(options[:srcDir], options[:dstDir], options[:patchDir], options[:exclude], options[:verbose])
 diffEngine.execute()
